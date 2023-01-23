@@ -10,6 +10,7 @@ use rocket::form::FromForm;
 use rocket::http::ContentType;
 use rocket::request::FromParam;
 use rocket::response::Responder;
+use rocket::response::status::NotFound;
 
 
 #[derive(FromForm)]
@@ -111,8 +112,9 @@ impl<'r> FromParam<'r> for NameGrade<'r> {
 }
 
 #[route(GET, uri = "/user/<uuid>", rank = 1, format = "text/html")]
-fn user(uuid: &str) -> Option<&User> {
-    USERS.get(uuid)
+fn user(uuid: &str) -> Result<&User, NotFound<&str>> {
+    let user = USERS.get(uuid);
+    user.ok_or(NotFound("user not found"))
 }
 
 #[get("/users/<name_grade>?<filters..>")]

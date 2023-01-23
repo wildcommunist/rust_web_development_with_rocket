@@ -7,5 +7,6 @@ authors = ["WildCommunist <alex@ceres.ventures>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+lazy_static = "1.4.0"
 rocket = "0.5.0-rc.2"
 

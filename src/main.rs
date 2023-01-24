@@ -4,15 +4,26 @@ extern crate rocket;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::num::ParseIntError;
+use std::sync::atomic::{AtomicU64, Ordering};
 use lazy_static::lazy_static;
-use rocket::{Build, Request, Response, response, Rocket};
+use rocket::{Build, Request, Response, response, Rocket, State};
 use rocket::form::FromForm;
-use rocket::http::ContentType;
+use rocket::http::{ContentType, Status};
 use rocket::request::FromParam;
 use rocket::response::Responder;
 use rocket::response::content;
 use rocket::response::status::NotFound;
 
+struct VisitorCounter {
+    visitor: AtomicU64,
+}
+
+impl VisitorCounter {
+    fn increment(&self) {
+        self.visitor.fetch_add(1, Ordering::Relaxed);
+        println!("The number of visitors: {}", self.visitor.load(Ordering::Relaxed));
+    }
+}
 
 #[derive(FromForm)]
 struct Filters {
@@ -113,12 +124,18 @@ impl<'r> FromParam<'r> for NameGrade<'r> {
 }
 
 #[route(GET, uri = "/user/<uuid>", rank = 1, format = "text/html")]
-fn user(uuid: &str) -> Option<&User> {
+fn user<'a>(counter: &State<VisitorCounter>, uuid: &'a str) -> Option<&'a User> {
+    counter.increment();
     USERS.get(uuid)
 }
 
 #[get("/users/<name_grade>?<filters..>")]
-fn users(name_grade: NameGrade, filters: Option<Filters>) -> Option<NewUser> {
+fn users<'a>(
+    counter: &State<VisitorCounter>,
+    name_grade: NameGrade,
+    filters: Option<Filters>,
+) -> Result<NewUser<'a>, Status> {
+    counter.increment();
     let users: Vec<&User> = USERS
         .values()
         .filter(|u| u.name.contains(name_grade.name) && u.grade == name_grade.grade)
@@ -135,9 +152,9 @@ fn users(name_grade: NameGrade, filters: Option<Filters>) -> Option<NewUser> {
         .collect();
 
     if users.len() > 0 {
-        Some(NewUser(users))
+        Ok(NewUser(users))
     } else {
-        None
+        Err(Status::Forbidden)
     }
 }
 
@@ -167,7 +184,13 @@ fn default_404(req: &Request) -> content::RawHtml<String> {
 
 #[launch]
 fn rocket() -> Rocket<Build> {
+    let visitor_counter = VisitorCounter {
+        visitor: AtomicU64::new(0)
+    };
+
+
     rocket::build()
+        .manage(visitor_counter)
         .mount("/", routes![user,users])
         .register("/", catchers![default_404])
 }

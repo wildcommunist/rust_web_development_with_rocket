@@ -13,6 +13,15 @@ use rocket::request::FromParam;
 use rocket::response::Responder;
 use rocket::response::content;
 use rocket::response::status::NotFound;
+use serde::Deserialize;
+use sqlx::{FromRow, PgPool};
+use sqlx::postgres::PgPoolOptions;
+use uuid::Uuid;
+
+#[derive(Deserialize)]
+struct Config {
+    database_url: String,
+}
 
 struct VisitorCounter {
     visitor: AtomicU64,
@@ -31,16 +40,20 @@ struct Filters {
     active: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
+#[sqlx(rename_all = "camelCase")]
 struct User {
-    uuid: String,
+    uuid: Uuid,
     name: String,
-    age: u8,
-    grade: u8,
-    active: bool,
+    age: i16,
+    grade: i16,
+    #[sqlx(rename = "active")]
+    present: bool,
+    #[sqlx(default)]
+    not_in_database: String,
 }
 
-impl<'r> Responder<'r, 'r> for &'r User {
+impl<'r> Responder<'r, 'r> for User {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'r> {
         let base_response = default_response();
         let user = format!("Found user: {:?}", self);
@@ -54,7 +67,7 @@ impl<'r> Responder<'r, 'r> for &'r User {
 
 struct NewUser<'a>(Vec<&'a User>);
 
-impl<'r> Responder<'r, 'r> for NewUser<'r> {
+impl<'r> Responder<'r, 'r> for NewUser {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'r> {
         let base_response = default_response();
         let result = self.0
@@ -76,23 +89,6 @@ fn default_response<'r>() -> Response<'r> {
         .header(ContentType::Plain)
         .raw_header("X-CUSTOM-HEADER", "CUSTOM")
         .finalize()
-}
-
-lazy_static! {
-    static ref USERS: HashMap<&'static str, User> = {
-        let mut map = HashMap::new();
-        map.insert(
-            "74d96050-8d8b-45e5-ac48-40c35208841e",
-            User{
-                uuid: String::from("74d96050-8d8b-45e5-ac48-40c35208841e"),
-                name: "Alex".to_string(),
-                age: 36,
-                grade: 10,
-                active: true
-            }
-        );
-        map
-    };
 }
 
 struct NameGrade<'r> {
@@ -124,9 +120,22 @@ impl<'r> FromParam<'r> for NameGrade<'r> {
 }
 
 #[route(GET, uri = "/user/<uuid>", rank = 1, format = "text/html")]
-fn user<'a>(counter: &State<VisitorCounter>, uuid: &'a str) -> Option<&'a User> {
+async fn user(
+    counter: &State<VisitorCounter>,
+    pool: &rocket::State<PgPool>,
+    uuid: &str,
+) -> Result<User, Status> {
     counter.increment();
-    USERS.get(uuid)
+    let parsed_uuid = Uuid::parse_str(uuid)
+        .map_err(|_| Status::BadRequest)?;
+
+    let user = sqlx::query_as!(
+        User,
+        r#"SELECT * FROM users WHERE uuid = $1"#,
+        parsed_uuid
+    ).fetch_one(pool.inner())
+        .await;
+    todo!()
 }
 
 #[get("/users/<name_grade>?<filters..>")]
@@ -135,27 +144,7 @@ fn users<'a>(
     name_grade: NameGrade,
     filters: Option<Filters>,
 ) -> Result<NewUser<'a>, Status> {
-    counter.increment();
-    let users: Vec<&User> = USERS
-        .values()
-        .filter(|u| u.name.contains(name_grade.name) && u.grade == name_grade.grade)
-        .filter(|u| {
-            if let Some(filter) = &filters {
-                println!("{:?}", filter.active);
-                println!("{:?}", filter.age);
-                u.age == filter.age && u.active == filter.active
-            } else {
-                print!("No filters");
-                true
-            }
-        })
-        .collect();
-
-    if users.len() > 0 {
-        Ok(NewUser(users))
-    } else {
-        Err(Status::Forbidden)
-    }
+    todo!()
 }
 
 #[catch(404)]
@@ -183,14 +172,27 @@ fn default_404(req: &Request) -> content::RawHtml<String> {
 }
 
 #[launch]
-fn rocket() -> Rocket<Build> {
+async fn rocket() -> Rocket<Build> {
     let visitor_counter = VisitorCounter {
         visitor: AtomicU64::new(0)
     };
 
+    let starship = rocket::build();
 
-    rocket::build()
+    let config: Config = starship
+        .figment()
+        .extract()
+        .expect("Incorrect Rocket.toml configuration");
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&config.database_url)
+        .await
+        .expect("Failed to connect to the database");
+
+    starship
         .manage(visitor_counter)
+        .manage(pool)
         .mount("/", routes![user,users])
         .register("/", catchers![default_404])
 }

@@ -10,6 +10,7 @@ use rocket::form::FromForm;
 use rocket::http::ContentType;
 use rocket::request::FromParam;
 use rocket::response::Responder;
+use rocket::response::content;
 use rocket::response::status::NotFound;
 
 
@@ -112,9 +113,8 @@ impl<'r> FromParam<'r> for NameGrade<'r> {
 }
 
 #[route(GET, uri = "/user/<uuid>", rank = 1, format = "text/html")]
-fn user(uuid: &str) -> Result<&User, NotFound<&str>> {
-    let user = USERS.get(uuid);
-    user.ok_or(NotFound("user not found"))
+fn user(uuid: &str) -> Option<&User> {
+    USERS.get(uuid)
 }
 
 #[get("/users/<name_grade>?<filters..>")]
@@ -141,7 +141,33 @@ fn users(name_grade: NameGrade, filters: Option<Filters>) -> Option<NewUser> {
     }
 }
 
+#[catch(404)]
+fn default_404(req: &Request) -> content::RawHtml<String> {
+    content::RawHtml(format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>404 Not Found</title>
+</head>
+<body align="center">
+    <div role="main" align="center">
+        <h1>404: Not Found</h1>
+        <p>The requested resource <span style="background:gray; padding: 0 5px; color: white;">{}</span> could not be found.</p>
+        <hr />
+    </div>
+    <div role="contentinfo" align="center">
+        <small>Rocket</small>
+    </div>
+</body>
+</html>
+    "#, req.uri()
+    ))
+}
+
 #[launch]
 fn rocket() -> Rocket<Build> {
-    rocket::build().mount("/", routes![user,users])
+    rocket::build()
+        .mount("/", routes![user,users])
+        .register("/", catchers![default_404])
 }

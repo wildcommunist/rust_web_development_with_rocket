@@ -137,8 +137,31 @@ async fn users(
     pool: &rocket::State<PgPool>,
     name_grade: NameGrade<'_>,
     filters: Option<Filters>,
-) -> Result<User, Status> {
-    todo!()
+) -> Result<NewUser, Status> {
+    let mut query_str = String::from("SELECT id, name, age, grade, active FROM users WHERE NAME LIKE $1 AND grade = $2");
+    if filters.is_some() {
+        query_str.push_str(" AND age=$3 AND active=$4");
+    }
+
+    let mut query = sqlx::query_as::<_, User>(&query_str)
+        .bind(format!("%{}%", &name_grade.name))
+        .bind(name_grade.grade as i16);
+
+    if let Some(filter) = &filters {
+        query = query.bind(filter.age as i16)
+            .bind(filter.active);
+    }
+
+    let unwrapped_users = query.fetch_all(pool.inner())
+        .await;
+
+    let users: Vec<User> = unwrapped_users.map_err(|_| Status::InternalServerError)?;
+
+    if users.is_empty() {
+        Err(Status::NotFound)
+    } else {
+        Ok(NewUser(users))
+    }
 }
 
 #[catch(404)]

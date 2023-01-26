@@ -44,8 +44,6 @@ struct User {
     age: i16,
     grade: i16,
     active: bool,
-    #[sqlx(default)]
-    not_in_database: String,
 }
 
 impl<'r> Responder<'r, 'r> for User {
@@ -126,7 +124,7 @@ async fn user(
 
     let user = sqlx::query_as!(
         User,
-        r#"SELECT * FROM users WHERE id = $1"#,
+        r#"SELECT id, name, age, grade, active FROM users WHERE id = $1"#,
         parsed_uuid
     ).fetch_one(pool.inner())
         .await;
@@ -134,9 +132,10 @@ async fn user(
 }
 
 #[get("/users/<name_grade>?<filters..>")]
-fn users(
+async fn users(
     counter: &State<VisitorCounter>,
-    name_grade: NameGrade,
+    pool: &rocket::State<PgPool>,
+    name_grade: NameGrade<'_>,
     filters: Option<Filters>,
 ) -> Result<User, Status> {
     todo!()

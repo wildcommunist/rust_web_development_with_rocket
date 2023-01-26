@@ -1,22 +1,18 @@
 #[macro_use]
 extern crate rocket;
 
-use std::collections::HashMap;
 use std::io::Cursor;
-use std::num::ParseIntError;
 use std::sync::atomic::{AtomicU64, Ordering};
-use lazy_static::lazy_static;
 use rocket::{Build, Request, Response, response, Rocket, State};
 use rocket::form::FromForm;
 use rocket::http::{ContentType, Status};
 use rocket::request::FromParam;
 use rocket::response::Responder;
 use rocket::response::content;
-use rocket::response::status::NotFound;
 use serde::Deserialize;
 use sqlx::{FromRow, PgPool};
 use sqlx::postgres::PgPoolOptions;
-use uuid::Uuid;
+use sqlx::types::Uuid;
 
 #[derive(Deserialize)]
 struct Config {
@@ -43,12 +39,11 @@ struct Filters {
 #[derive(Debug, FromRow)]
 #[sqlx(rename_all = "camelCase")]
 struct User {
-    uuid: Uuid,
+    id: Uuid,
     name: String,
     age: i16,
     grade: i16,
-    #[sqlx(rename = "active")]
-    present: bool,
+    active: bool,
     #[sqlx(default)]
     not_in_database: String,
 }
@@ -59,13 +54,13 @@ impl<'r> Responder<'r, 'r> for User {
         let user = format!("Found user: {:?}", self);
         Response::build()
             .sized_body(user.len(), Cursor::new(user))
-            .raw_header("X-USER-ID", self.uuid.to_string())
+            .raw_header("X-USER-ID", self.id.to_string())
             .merge(base_response)
             .ok()
     }
 }
 
-struct NewUser<'a>(Vec<&'a User>);
+struct NewUser(Vec<User>);
 
 impl<'r> Responder<'r, 'r> for NewUser {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'r> {
@@ -131,19 +126,19 @@ async fn user(
 
     let user = sqlx::query_as!(
         User,
-        r#"SELECT * FROM users WHERE uuid = $1"#,
+        r#"SELECT * FROM users WHERE id = $1"#,
         parsed_uuid
     ).fetch_one(pool.inner())
         .await;
-    todo!()
+    user.map_err(|_| Status::NotFound)
 }
 
 #[get("/users/<name_grade>?<filters..>")]
-fn users<'a>(
+fn users(
     counter: &State<VisitorCounter>,
     name_grade: NameGrade,
     filters: Option<Filters>,
-) -> Result<NewUser<'a>, Status> {
+) -> Result<User, Status> {
     todo!()
 }
 

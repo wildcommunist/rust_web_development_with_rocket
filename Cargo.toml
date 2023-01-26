@@ -10,5 +10,4 @@ authors = ["WildCommunist <alex@ceres.ventures>"]
 sqlx = { version = "0.5.7", features = ["postgres", "uuid", "runtime-tokio-rustls"] }
 rocket = "0.5.0-rc.2"
 serde = "1.0.152"
-uuid = "1.2.2"
 
